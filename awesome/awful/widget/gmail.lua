@@ -73,7 +73,7 @@ function M.new(args)
 	end
 	, 240)
 
-	return gmail
+	return gmail.widget
 end
 
 return M
