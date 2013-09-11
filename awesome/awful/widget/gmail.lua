@@ -1,11 +1,17 @@
-require('awful')
-require('vicious')
-require('naughty')
+local awful = require('awful')
+local wibox = require("wibox")
+local vicious = require('vicious')
+local naughty = require('naughty')
 local M = {}
 function M.new(args)
 	local gmail = {}
-	gmail.widget = widget({type = "imagebox" })
-	gmail.widget.image = image(awful.util.getdir("config") .. "/awful/widget/gmail-icons/mail.png")
+	gmail.widget = wibox.widget.imagebox()
+	gmail.image = {
+		["disabled"] = awful.util.getdir("config") .. "/awful/widget/icons/mail-disabled.png",
+		["active"] = awful.util.getdir("config") .. "/awful/widget/icons/mail.png",
+		["new"] = awful.util.getdir("config") .. "/awful/widget/icons/mail-new.png",
+	}
+	gmail.widget.image = gmail.image['active']
 
 	gmail.enabled = true
 	gmail.args = { ["{count}"] = 0 }
@@ -13,15 +19,15 @@ function M.new(args)
 		awful.button({ }, 1, function ()
 			local browser = browser or "firefox"
 			awful.util.spawn(browser .. " https://mail.google.com")
-			gmail.widget.image = image(awful.util.getdir("config") .. "/awful/widget/gmail-icons/mail.png")
+			gmail.widget:set_image(gmail.image['active'])
 			gmail.args["{count}"] = 0
 		end),
 		awful.button({}, 3, function ()
 			if gmail.enabled then
-				gmail.widget.image = image(awful.util.getdir("config") .. "/awful/widget/gmail-icons/mail-disabled.png")
+				gmail.widget:set_image(gmail.image['disabled'])
 				vicious.unregister(gmail.widget, true)
 			else
-				gmail.widget.image = image(awful.util.getdir("config") .. "/awful/widget/gmail-icons/mail.png")
+				gmail.widget:set_image(gmail.image['active'])
 				vicious.activate(gmail.widget)
 			end
 			gmail.enabled = not gmail.enabled
@@ -56,9 +62,9 @@ function M.new(args)
 	vicious.register(gmail.widget, vicious.widgets.gmail,
 	function(widget, args)
 		if args["{count}"] > 0 then
-			widget.image = image(awful.util.getdir("config") .. "/awful/widget/gmail-icons/mail-new.png")
+			widget:set_image(gmail.image['new'])
 		else
-			widget.image = image(awful.util.getdir("config") .. "/awful/widget/gmail-icons/mail.png")
+			widget:set_image(gmail.image['active'])
 		end
 		if args["{count}"] > gmail.args["{count}"] then
 			naughty.notify({
