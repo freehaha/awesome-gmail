@@ -11,7 +11,7 @@ function M.new(args)
 		["active"] = awful.util.getdir("config") .. "/awful/widget/icons/mail.png",
 		["new"] = awful.util.getdir("config") .. "/awful/widget/icons/mail-new.png",
 	}
-	gmail.widget.image = gmail.image['active']
+	gmail.widget:set_image(gmail.image['active'])
 
 	gmail.enabled = true
 	gmail.args = { ["{count}"] = 0 }
@@ -35,7 +35,7 @@ function M.new(args)
 	))
 
 	gmail.notify = nil
-	gmail.widget:add_signal("mouse::enter",
+	gmail.widget:connect_signal("mouse::enter",
 	function()
 		local popuptext = ""
 		if gmail.args["{count}"] > 0 then
@@ -52,7 +52,7 @@ function M.new(args)
 			timeout = 0
 		})
 	end)
-	gmail.widget:add_signal("mouse::leave", 
+	gmail.widget:connect_signal("mouse::leave", 
 	function ()
 		if gmail.notify then
 			naughty.destroy(gmail.notify)
