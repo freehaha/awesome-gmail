@@ -2,8 +2,53 @@ local awful = require('awful')
 local wibox = require("wibox")
 local vicious = require('vicious')
 local naughty = require('naughty')
+local capi = { timer = timer }
+
+local zmq = require "lzmq"
+local zthread = require "lzmq.threads"
+local timer;
+
 local M = {}
+
+function deserialize(string)
+	local mail = {}
+	args = split(string, "|", 2)
+	mail["{count}"] = tonumber(args[1])
+	mail["{subject}"] = args[2]
+	return mail
+end
+
+-- http://lua-users.org/wiki/SplitJoin
+function split(str, delim, maxNb)
+    -- Eliminate bad cases...
+    if string.find(str, delim) == nil then
+        return { str }
+    end
+    if maxNb == nil or maxNb < 1 then
+        maxNb = 0    -- No limit
+    end
+    local result = {}
+    local pat = "(.-)" .. delim .. "()"
+    local nb = 0
+    local lastPos
+    for part, pos in string.gfind(str, pat) do
+        nb = nb + 1
+        result[nb] = part
+        lastPos = pos
+        if nb == maxNb then break end
+    end
+    -- Handle the last field
+    if nb ~= maxNb then
+        result[nb + 1] = string.sub(str, lastPos)
+    end
+    return result
+end
+
 function M.new(args)
+	M.ctx = zmq.context({io_threads = 1, max_sockets = 10})
+	M.s, err = M.ctx:socket(zmq.PULL)
+	M.s:bind("inproc://#gmail")
+
 	local gmail = {}
 	gmail.widget = wibox.widget.imagebox()
 	gmail.image = {
@@ -59,25 +104,54 @@ function M.new(args)
 			gmail.notify = nil
 		end
 	end)
-	vicious.register(gmail.widget, vicious.widgets.gmail,
-	function(widget, args)
-		if args["{count}"] > 0 then
+
+	function update()
+		local msg, err = s:recv_new_msg(zmq.DONTWAIT)
+		local last_msg = nil
+		while msg ~= nil do
+			if last_msg ~= nil then
+				last_msg:close()
+			end
+			last_msg = msg
+			msg, err = s:recv_new_msg(zmq.DONTWAIT)
+		end
+		if err:no() ~= zmq.EAGAIN then
+			-- TODO: panic
+			return
+		end
+		mail = deserialize(last_msg:data())
+		last_msg:close()
+
+		if mail["{count}"] > 0 then
 			widget:set_image(gmail.image['new'])
 		else
 			widget:set_image(gmail.image['active'])
 		end
-		if args["{count}"] > gmail.args["{count}"] then
+		if mail["{count}"] > gmail.args["{count}"] then
 			naughty.notify({
-				text = "new mail: " .. args["{subject}"] .. "\nand " .. (args["{count}"]-1) .. " more...",
+				text = "new mail: " .. mail["{subject}"] .. "\nand " .. (mail["{count}"]-1) .. " more...",
 				title = "New Mail",
 				timeout = 5
 			})
 		end
-		gmail.args["{count}"] = args["{count}"]
-		gmail.args["{subject}"] = args["{subject}"]
+		gmail.args["{count}"] = mail["{count}"]
+		gmail.args["{subject}"] = mail["{subject}"]
 		return args
 	end
-	, 240)
+
+	-- register a timer
+	timer = capi.timer({ timeout = 30 })
+	if timer.connect_signal then
+		timer:connect_signal("timeout", update)
+	else
+		timer:connect_signal("timeout", update)
+	end
+	timer:start()
+
+	zthread.run(ctx, function()
+		local ctx = require "lzmq.threads".context()
+		require("worker").go(ctx)
+	end):start()
 
 	return gmail.widget
 end
