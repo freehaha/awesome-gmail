@@ -1,6 +1,5 @@
 local awful = require('awful')
 local wibox = require("wibox")
-local vicious = require('vicious')
 local naughty = require('naughty')
 local capi = { timer = timer }
 
@@ -10,16 +9,25 @@ local timer;
 
 local M = {}
 
-function deserialize(string)
-	local mail = {}
-	args = split(string, "|", 2)
-	mail["{count}"] = tonumber(args[1])
-	mail["{subject}"] = args[2]
-	return mail
+
+local function stopThread(gmail)
+	local msg = zmq.msg_init_data("")
+	gmail.sc:send_msg(msg, zmq.DONTWAIT)
+	gmail.tm:stop()
+	msg:close()
+end
+
+local function startThread(options, gmail)
+	gmail.tm:start()
+	zthread.run(gmail.ctx, function(paths, timeout)
+		local ctx = require "lzmq.threads".context()
+		package.path = paths
+		require("awful.widget.gmail.worker").go(ctx, timeout)
+	end, package.path, options.timeout):start(true, true)
 end
 
 -- http://lua-users.org/wiki/SplitJoin
-function split(str, delim, maxNb)
+local function split(str, delim, maxNb)
     -- Eliminate bad cases...
     if string.find(str, delim) == nil then
         return { str }
@@ -44,12 +52,20 @@ function split(str, delim, maxNb)
     return result
 end
 
-function M.new(args)
-	args = args or {}
-	args.timeout = args.timeout or 30
-	args.half = args.timeout / 2
-	if args.half < 1 then
-		args.half = 1
+local function deserialize(string)
+	local mail = {}
+	args = split(string, "|", 2)
+	mail["{count}"] = tonumber(args[1])
+	mail["{subject}"] = args[2]
+	return mail
+end
+
+function M.new(options)
+	options = options or {}
+	options.timeout = options.timeout or 30
+	options.half = options.timeout / 2
+	if options.half < 1 then
+		options.half = 1
 	end
 
 	local gmail = {}
@@ -86,10 +102,10 @@ function M.new(args)
 		awful.button({}, 3, function ()
 			if gmail.enabled then
 				gmail.widget:set_image(gmail.image['disabled'])
-				-- vicious.unregister(gmail.widget, true)
+				stopThread(gmail)
 			else
 				gmail.widget:set_image(gmail.image['active'])
-				-- vicious.activate(gmail.widget)
+				startThread(options, gmail)
 			end
 			gmail.enabled = not gmail.enabled
 		end)
@@ -161,34 +177,24 @@ function M.new(args)
 		end
 		gmail.args["{count}"] = mail["{count}"]
 		gmail.args["{subject}"] = mail["{subject}"]
-		return args
 	end
 
 	-- register a timer
-	timer = capi.timer({ timeout = args.half })
-	if timer.connect_signal then
-		timer:connect_signal("timeout", update)
+	gmail.tm = capi.timer({ timeout = options.half })
+	if gmail.tm.connect_signal then
+		gmail.tm:connect_signal("timeout", update)
 	else
-		timer:add_signal("timeout", update)
+		gmail.tm:add_signal("timeout", update)
 	end
-	timer:start()
 
 	-- notify the worker thread to terminate when exiting awesome
 	awesome.connect_signal("exit", function(restart)
-		local msg = zmq.msg_init_data("")
-		gmail.sc:send_msg(msg, zmq.DONTWAIT)
-		msg:close()
+		stopThread(gmail)
 		gmail.sc:close()
 		gmail.s:close()
 	end)
 
-	zthread.run(gmail.ctx, function(paths, timeout)
-		local ctx = require "lzmq.threads".context()
-		package.path = paths
-		require("awful.widget.gmail.worker").go(ctx, timeout)
-	end, package.path, args.timeout):start(true, true)
-
-	timer:emit_signal("timeout")
+	startThread(options, gmail)
 	return gmail.widget
 end
 
