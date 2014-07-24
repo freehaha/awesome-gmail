@@ -45,11 +45,27 @@ function split(str, delim, maxNb)
 end
 
 function M.new(args)
-	M.ctx = zmq.context({io_threads = 1, max_sockets = 10})
-	M.s, err = M.ctx:socket(zmq.PULL)
-	M.s:bind("inproc://#gmail")
+	args = args or {}
+	args.timeout = args.timeout or 30
+	args.half = args.timeout / 2
+	if args.half < 1 then
+		args.half = 1
+	end
 
 	local gmail = {}
+	gmail.ctx = zmq.context({io_threads = 1, max_sockets = 10})
+	gmail.s, err = gmail.ctx:socket(zmq.PULL)
+	gmail.sc, err = gmail.ctx:socket(zmq.PUSH)
+	local ok, err = gmail.s:bind("inproc://gmail")
+	gmail.sc:bind("inproc://gmail_close")
+	if ok == nil then
+		naughty.notify({
+			text = "PANIC",
+			title = "GMail",
+			timeout = 5
+		})
+	end
+
 	gmail.widget = wibox.widget.imagebox()
 	gmail.image = {
 		["disabled"] = awful.util.getdir("config") .. "/awful/widget/icons/mail-disabled.png",
@@ -70,10 +86,10 @@ function M.new(args)
 		awful.button({}, 3, function ()
 			if gmail.enabled then
 				gmail.widget:set_image(gmail.image['disabled'])
-				vicious.unregister(gmail.widget, true)
+				-- vicious.unregister(gmail.widget, true)
 			else
 				gmail.widget:set_image(gmail.image['active'])
-				vicious.activate(gmail.widget)
+				-- vicious.activate(gmail.widget)
 			end
 			gmail.enabled = not gmail.enabled
 		end)
@@ -106,26 +122,35 @@ function M.new(args)
 	end)
 
 	function update()
-		local msg, err = s:recv_new_msg(zmq.DONTWAIT)
+		local msg, err = gmail.s:recv_new_msg(zmq.DONTWAIT)
 		local last_msg = nil
+		local mail
 		while msg ~= nil do
 			if last_msg ~= nil then
 				last_msg:close()
 			end
 			last_msg = msg
-			msg, err = s:recv_new_msg(zmq.DONTWAIT)
+			msg, err = gmail.s:recv_new_msg(zmq.DONTWAIT)
 		end
 		if err:no() ~= zmq.EAGAIN then
 			-- TODO: panic
+			naughty.notify({
+				text = "PANIC",
+				title = "Gmail",
+				timeout = 5
+			})
 			return
 		end
-		mail = deserialize(last_msg:data())
-		last_msg:close()
-
-		if mail["{count}"] > 0 then
-			widget:set_image(gmail.image['new'])
+		if last_msg ~= nil then
+			mail = deserialize(last_msg:data())
+			last_msg:close()
 		else
-			widget:set_image(gmail.image['active'])
+			return
+		end
+		if mail["{count}"] > 0 then
+			gmail.widget:set_image(gmail.image['new'])
+		else
+			gmail.widget:set_image(gmail.image['active'])
 		end
 		if mail["{count}"] > gmail.args["{count}"] then
 			naughty.notify({
@@ -140,19 +165,30 @@ function M.new(args)
 	end
 
 	-- register a timer
-	timer = capi.timer({ timeout = 30 })
+	timer = capi.timer({ timeout = args.half })
 	if timer.connect_signal then
 		timer:connect_signal("timeout", update)
 	else
-		timer:connect_signal("timeout", update)
+		timer:add_signal("timeout", update)
 	end
 	timer:start()
 
-	zthread.run(ctx, function()
-		local ctx = require "lzmq.threads".context()
-		require("worker").go(ctx)
-	end):start()
+	-- notify the worker thread to terminate when exiting awesome
+	awesome.connect_signal("exit", function(restart)
+		local msg = zmq.msg_init_data("")
+		gmail.sc:send_msg(msg, zmq.DONTWAIT)
+		msg:close()
+		gmail.sc:close()
+		gmail.s:close()
+	end)
 
+	zthread.run(gmail.ctx, function(paths, timeout)
+		local ctx = require "lzmq.threads".context()
+		package.path = paths
+		require("awful.widget.gmail.worker").go(ctx, timeout)
+	end, package.path, args.timeout):start(true, true)
+
+	timer:emit_signal("timeout")
 	return gmail.widget
 end
 

@@ -44,16 +44,30 @@ function serialize(mail)
 	return mail["{count}"] .. "|" .. mail["{subject}"]
 end
 
-function M.go(ctx)
-	s, err = ctx:socket(zmq.PUSH)
-	s:connect("inproc://#gmail")
-	local msg
+function M.go(ctx, timeout)
+	local ok, s, err, msg
+	local s, err = ctx:socket(zmq.PUSH)
+	local sc = ctx:socket(zmq.PULL)
+
+	ok, err = s:connect("inproc://gmail")
+	if ok == nil then
+		print(err:msg())
+	end
+	sc:set_rcvtimeo(timeout * 1000)
+	ok, err = sc:connect("inproc://gmail_close")
+
 	while true do
 		local mail = M.check()
 		msg = zmq.msg_init_data(serialize(mail))
-		s:send_msg(msg)
+		ok, err = s:send_msg(msg)
+		if ok == nil then
+			print(err:msg())
+		end
 		msg:close()
-		timer.sleep(30000)
+		msg, err = sc:recv_new_msg()
+		if msg ~= nil or err:no() ~= zmq.EAGAIN then
+			return
+		end
 	end
 end
 
