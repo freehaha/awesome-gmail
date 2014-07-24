@@ -21,7 +21,7 @@ login id and password should be enter in ~/.netrc in the following form:
 
 	machine mail.google.com login <username@gmail.com> password <password>
 
-where **<username@gmail.com>** and **<password>** should be replace by your own id/pwd
+where ```<username@gmail.com>``` and ```<password>``` should be replace by your own id/pwd
 
 Then, after reloading awesome you should see your gmail widget up and running
 
