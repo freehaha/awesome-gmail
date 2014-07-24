@@ -1,3 +1,4 @@
+-- code for feed processing are borrowed from [vicious](https://github.com/Mic92/vicious)/widgets/gmail
 local timer = require "lzmq.timer"
 local zmq = require "lzmq"
 local M = {}
