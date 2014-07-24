@@ -28,3 +28,10 @@ Then, after reloading awesome you should see your gmail widget up and running
 right click on it (button 3) to toggle the activity of the widget and left click to opens the browser
 which the browser command can be set to global variable ```browser``` or ```firefox``` is used as default browser
 
+#Threaded
+If you're using branch threaded, you'll need to install lzmq and llthreads2 lua modules. You can do so by using luarocks:
+
+```sh
+luarocks install lua-llthreads2
+luarocks install lzmq
+```
